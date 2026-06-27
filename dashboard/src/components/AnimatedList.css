@@ -1,0 +1,76 @@
+.scroll-list-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.scroll-list {
+  max-height: 480px;
+  overflow-y: auto;
+  padding: 8px var(--spacing-10);
+  height: 100%;
+}
+
+.scroll-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scroll-list::-webkit-scrollbar-track {
+  background: var(--color-obsidian-ink);
+}
+
+.scroll-list::-webkit-scrollbar-thumb {
+  background: var(--color-sage);
+  border-radius: 3px;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.animated-list-item {
+  margin-bottom: var(--spacing-10);
+}
+
+.animated-item-content {
+  padding: var(--spacing-15);
+  background-color: var(--color-obsidian-ink);
+  border: 1px solid var(--color-bark);
+  border-radius: 10px;
+  transition: all 0.2s ease;
+}
+
+.animated-item-content.selected {
+  border-color: var(--color-voltage);
+  background-color: var(--color-bark);
+}
+
+.top-gradient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to bottom, var(--color-linen) 0%, transparent 100%);
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  z-index: 5;
+}
+
+.bottom-gradient {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to top, var(--color-linen) 0%, transparent 100%);
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  z-index: 5;
+}

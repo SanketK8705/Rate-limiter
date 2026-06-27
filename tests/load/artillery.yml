@@ -1,0 +1,20 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 15
+      arrivalRate: 20
+      rampTo: 500
+      name: Ramp up to 500 concurrent req/sec
+    - duration: 10
+      arrivalRate: 500
+      name: Sustained peak load of 500 req/sec
+  defaults:
+    headers:
+      Content-Type: "application/json"
+scenarios:
+  - name: "Live client quota rate checks"
+    flow:
+      - post:
+          url: "/check"
+          json:
+            clientId: "artillery_user"

@@ -1,0 +1,146 @@
+{
+  "info": {
+    "name": "Rate Limiter Microservice API",
+    "description": "API collection for standalone rate limiter endpoints, verifying check, config, and health checks.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "GET /health (Health Check)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/health",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "health"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "POST /admin/config (Configure Token Bucket)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"clientId\": \"postman_client\",\n  \"algorithm\": \"tokenBucket\",\n  \"limit\": 5,\n  \"refillRate\": 0.5,\n  \"burstSize\": 5\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/admin/config",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "admin",
+            "config"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "POST /admin/config (Configure Sliding Window Scoped)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"clientId\": \"postman_client\",\n  \"endpoint\": \"/checkout\",\n  \"algorithm\": \"slidingWindow\",\n  \"limit\": 2,\n  \"windowSize\": 15\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/admin/config",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "admin",
+            "config"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "POST /check (Check Rate Limit - General)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"clientId\": \"postman_client\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/check",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "check"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "POST /check (Check Rate Limit - Strict Endpoint Scoped)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"clientId\": \"postman_client\",\n  \"endpoint\": \"/checkout\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/check",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "check"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}
