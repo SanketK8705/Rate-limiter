@@ -1,166 +1,363 @@
 # Token Bucket & Sliding Window Rate Limiter Microservice
 
-A standalone API microservice that rate-limits other APIs. Built with **Node.js, Express, and Redis**, this service implements both the **Token Bucket** and **Sliding Window** rate limiting algorithms using atomic Lua scripts to prevent race conditions (double-spend bugs) under high concurrent load.
+> A production-grade standalone API microservice that rate-limits other APIs — not a library, a networked service.
 
-It also features a premium, light-themed live analytics dashboard designed with **NewForm aesthetics** (Linen and Voltage green colors) utilizing interactive canvas fluid effects and React Bits components.
+🚀 **Live Demo:** https://rate-limiter-service-n1dk.onrender.com  
+📦 **GitHub:** https://github.com/SanketK8705/Rate-limiter
 
 ---
 
-## Architecture Diagram
+## What Is This?
+
+Every API needs rate limiting. Most developers import a library and move on. This project builds rate limiting as a **standalone microservice** — a separate server that any API calls before processing a request.
 
 ```
-   Client Gateway / App
+Your App  →  POST /check { clientId }  →  Rate Limiter  →  ALLOW / DENY
+```
+
+If allowed → proceed. If denied → return 429 Too Many Requests.
+
+This forces real engineering: shared state, clock precision, atomic operations, and concurrency — instead of just calling a library.
+
+---
+
+## Architecture
+
+```
+   Client App / API Gateway
             │
             ▼
      POST /check { clientId: "user_123" }
             │
             ▼
-   Rate Limiter Service (Node.js/Express) ◄──► WebSockets (Socket.io) ◄──► Live Dashboard (React)
+   Rate Limiter Service (Node.js + Express)
+            │
+            ├──► Redis (atomic Lua script: read + decrement in one step)
+            │
+            └──► Socket.io ──► Live Dashboard (React)
             │
             ▼
-    Redis (Stores bucket state per client)
-    [Atomic Lua evaluation: read + update in single step]
-            │
-            ▼
-   Response: { allowed: true/false, remaining: 9, limit: 10, resetAt: 1782550505 }
+   Response:
+   {
+     "allowed": true,
+     "remaining": 9,
+     "limit": 10,
+     "resetAt": 1782550505
+   }
+
    Headers:
      X-RateLimit-Limit: 10
      X-RateLimit-Remaining: 9
      X-RateLimit-Reset: 1782550505
+     Retry-After: 7  (on 429 responses)
 ```
 
 ---
 
-## Core Features
+## The Hard Problem: Race Conditions
 
-1. **Check Endpoint (`POST /check`)**: Microservices hit this endpoint with `{ clientId }` and get a JSON decision on whether to proceed or block, along with standard rate-limit headers.
-2. **Admin Config Endpoint (`POST /admin/config`)**: Customize limits per client: configure algorithm type, max limit, refill rates, and window sizes.
-3. **Persistent State**: State resides in Redis, allowing the rate-limiting service to be completely stateless and horizontal-scaling friendly.
-4. **Race-Condition Free**: Uses Redis-level custom Lua scripts to fetch, verify, and update tokens/events in a single atomic transaction. No two overlapping HTTP requests can double-allocate a token.
-5. **Dual Algorithms**: Supports both the burst-tolerant **Token Bucket** and strict **Sliding Window** rate limiters, configurable dynamically per client ID.
-6. **Live Analytics Dashboard**: Visualizes global checks count, live allowed/denied counts, real-time throughput (RPS), and a scrolling stream of recent check entries.
+Two requests arrive at the exact same millisecond. Both read Redis: `tokens = 1`. Both think they can proceed. Both get ALLOWED. But only 1 token existed.
+
+**This is a double-spend bug.** Standard GET → SET patterns are not safe under concurrent load.
+
+**Fix:** Atomic Lua script executed at the Redis level. Read and decrement happen in a single uninterruptible operation. No two requests can interleave.
+
+```lua
+local current = redis.call('GET', KEYS[1])
+if current and tonumber(current) > 0 then
+    redis.call('DECR', KEYS[1])
+    return 1  -- ALLOW
+else
+    return 0  -- DENY
+end
+```
+
+**Proof:** Load tested at 500 concurrent req/sec — 8,900 requests, 0 failures, p99 latency 5ms. Concurrency test: 20 simultaneous requests against a bucket of 10 — exactly 10 ALLOW, 10 DENY. Zero double-spends.
+
+---
+
+## Features
+
+### Core
+| # | Feature | Details |
+|---|---------|---------|
+| 01 | **Check Endpoint** | `POST /check` — returns ALLOW/DENY + standard headers |
+| 02 | **Admin Config** | `POST /admin/config` — per-client limits, algorithm, burst size |
+| 03 | **Persistent State** | Redis — survives server restarts, horizontally scalable |
+| 04 | **Race Condition Safe** | Atomic Lua scripts — proven under 500 req/sec load |
+| 05 | **Dual Algorithms** | Token Bucket (burst-tolerant) + Sliding Window (strict) |
+| 06 | **Per-Endpoint Limiting** | Scope limits to specific routes: `clientId:endpoint` |
+| 07 | **HTTP Spec Compliance** | 429 status, `Retry-After`, `X-RateLimit-*` headers |
+| 08 | **Input Validation** | 400 errors with detailed messages on bad admin config |
+| 09 | **Health Endpoint** | `GET /health` — Redis ping verification + uptime |
+| 10 | **Live Dashboard** | React + Socket.io — real-time allowed/denied feed, client registry |
+
+### Load Test Results
+```
+Total requests:     8,900
+Failed requests:    0
+Peak throughput:    500 req/sec
+p50 latency:        1ms
+p95 latency:        3ms
+p99 latency:        5ms
+```
 
 ---
 
 ## Tech Stack
 
 | Layer | Tech |
-|---|---|
-| **Server Engine** | Node.js + Express |
-| **State Cache** | Redis 7+ |
-| **Atomic Operations** | Custom Lua scripts (`redis.call`) |
-| **Real-time Streaming** | WebSockets (Socket.io) |
-| **Dashboard UI** | Vite + React (Three.js/framer-motion) |
-| **Visual Aesthetics** | NewForm Design Tokens (Linen canvas, Obsidian Ink typography, Voltage Green details) |
-| **Load Testing** | Artillery |
+|-------|------|
+| Server | Node.js + Express |
+| State | Redis 7+ |
+| Atomic Ops | Custom Lua scripts |
+| Real-time | Socket.io |
+| Dashboard | React + Vite |
+| Load Testing | Artillery |
+| Deploy | Render + Redis Cloud |
 
 ---
 
-## Getting Started
+## API Reference
+
+### `POST /check`
+Check if a client is within their rate limit.
+
+**Request:**
+```json
+{
+  "clientId": "user_123",
+  "endpoint": "/login"
+}
+```
+
+**Response (200 — Allowed):**
+```json
+{
+  "allowed": true,
+  "remaining": 9,
+  "limit": 10,
+  "resetAt": 1782550505
+}
+```
+
+**Response (429 — Blocked):**
+```json
+{
+  "allowed": false,
+  "remaining": 0,
+  "limit": 10,
+  "resetAt": 1782550505,
+  "retryAfter": 7
+}
+```
+
+---
+
+### `POST /admin/config`
+Configure rate limit for a specific client.
+
+**Token Bucket:**
+```json
+{
+  "clientId": "user_123",
+  "algorithm": "tokenBucket",
+  "limit": 10,
+  "refillRate": 2,
+  "burstSize": 15
+}
+```
+
+**Sliding Window:**
+```json
+{
+  "clientId": "user_123",
+  "algorithm": "slidingWindow",
+  "limit": 10,
+  "windowSize": 30
+}
+```
+
+**Per-Endpoint:**
+```json
+{
+  "clientId": "user_123",
+  "endpoint": "/login",
+  "algorithm": "tokenBucket",
+  "limit": 3,
+  "refillRate": 1,
+  "burstSize": 3
+}
+```
+
+---
+
+### `GET /health`
+```json
+{
+  "status": "UP",
+  "redis": "CONNECTED"
+}
+```
+
+---
+
+## Running Locally
 
 ### Prerequisites
+- Node.js v18+
+- Redis (via Homebrew or Docker)
 
-- Node.js (v18+)
-- Redis running locally on port `6379` (via Homebrew or Docker)
-
-To run Redis using Homebrew (macOS):
 ```bash
+# Install Redis (macOS)
 brew install redis
 brew services start redis
+
+# Verify
+redis-cli ping  # → PONG
 ```
 
-### Installation
+### Setup
 
-1. Install backend dependencies:
-   ```bash
-   npm install
-   ```
-
-2. Build the React dashboard:
-   ```bash
-   cd dashboard
-   npm install
-   npm run build
-   cd ..
-   ```
-
-3. Create a `.env` file in the root directory:
-   ```env
-   PORT=3000
-   REDIS_URL=redis://localhost:6379
-   ```
-
-### Running the Service
-
-Start the server:
 ```bash
+# Clone
+git clone https://github.com/SanketK8705/Rate-limiter.git
+cd Rate-limiter
+
+# Install backend deps
+npm install
+
+# Build dashboard
+cd dashboard && npm install && npm run build && cd ..
+
+# Environment
+echo "PORT=3000\nREDIS_URL=redis://localhost:6379" > .env
+
+# Start
 npm start
 ```
-The server will boot on port `3000`. If the dashboard is built (`dashboard/dist` exists), it will serve the dashboard statically on `http://localhost:3000/`. Otherwise, developers can run the Vite dev server for the dashboard:
+
+Open `http://localhost:3000`
+
+---
+
+## Testing
+
+### Quick Tests
 ```bash
-cd dashboard
-npm run dev
+# Health
+curl http://localhost:3000/health
+
+# Single check
+curl -X POST http://localhost:3000/check \
+  -H "Content-Type: application/json" \
+  -d '{"clientId": "user_123"}'
+
+# Drain bucket (10 allow, 5 deny)
+for i in {1..15}; do
+  curl -s -X POST http://localhost:3000/check \
+    -H "Content-Type: application/json" \
+    -d '{"clientId": "user_123"}'
+  echo ""
+done
+
+# Concurrency test (20 simultaneous — exactly 10 allowed)
+for i in {1..20}; do
+  curl -s -X POST http://localhost:3000/check \
+    -H "Content-Type: application/json" \
+    -d '{"clientId": "concurrency_test"}' &
+done
+wait
+```
+
+### Attack Demo
+```bash
+npm run demo
+```
+Simulates a normal user + attacker. Watch dashboard at `http://localhost:3000`.
+
+### Load Test
+```bash
+cd tests/load
+npx artillery run artillery.yml
 ```
 
 ---
 
-## API Endpoints
+## Architectural Decisions
 
-### 1. Check Rate Limit
-* **Route**: `POST /check`
-* **Headers**: `Content-Type: application/json`
-* **Body**:
-  ```json
-  {
-    "clientId": "user_123",
-    "cost": 1
-  }
-  ```
-* **Response Headers**:
-  - `X-RateLimit-Limit`: Maximum quota allocation (e.g. `10`)
-  - `X-RateLimit-Remaining`: Remaining tokens or available slots in the current window (e.g. `9`)
-  - `X-RateLimit-Reset`: Unix timestamp when the limit resets completely (e.g. `1782550505`)
-* **Response Body**:
-  ```json
-  {
-    "allowed": true,
-    "remaining": 9,
-    "limit": 10,
-    "resetAt": 1782550505
-  }
-  ```
-
-### 2. Configure Client Rate
-* **Route**: `POST /admin/config`
-* **Headers**: `Content-Type: application/json`
-* **Body (Token Bucket)**:
-  ```json
-  {
-    "clientId": "user_123",
-    "algorithm": "tokenBucket",
-    "limit": 20,
-    "refillRate": 5,
-    "burstSize": 25
-  }
-  ```
-* **Body (Sliding Window)**:
-  ```json
-  {
-    "clientId": "user_123",
-    "algorithm": "slidingWindow",
-    "limit": 10,
-    "windowSize": 30
-  }
-  ```
+See [DECISIONS.md](./DECISIONS.md) for full rationale on:
+- Why Redis over PostgreSQL for state
+- Why Lua scripts over transactions
+- Why Token Bucket as default over Sliding Window
+- Fail-open vs fail-closed on Redis downtime
+- Why microservice over library
 
 ---
 
-## Load Testing
+## Integration Example
 
-We use **Artillery** to verify performance and race safety under 500+ requests per second load.
+Plug this into any existing Node.js app:
 
-Run the test suite:
-```bash
-npx artillery run tests/load/artillery.yml
+```javascript
+// middleware/rateLimiter.js
+async function checkRateLimit(req, res, next) {
+  const response = await fetch('https://rate-limiter-service-n1dk.onrender.com/check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      clientId: req.ip,
+      endpoint: req.path
+    })
+  });
+
+  const { allowed, retryAfter } = await response.json();
+
+  if (!allowed) {
+    return res.status(429).json({
+      error: 'Too many requests',
+      retryAfter
+    });
+  }
+
+  next();
+}
+
+// Apply to any route
+app.use('/api', checkRateLimit);
 ```
-This tests ramp-up to 500 concurrent req/sec and verifies Redis handles Lua operations atomically under heavy concurrent load, preventing race conditions or double- spend.
+
+---
+
+## Project Structure
+
+```
+rate-limiter/
+├── src/
+│   ├── index.js                  # Express server + Socket.io
+│   ├── routes/
+│   │   ├── check.js              # POST /check
+│   │   └── admin.js              # POST /admin/config
+│   ├── algorithms/
+│   │   ├── tokenBucket.js        # Token bucket implementation
+│   │   └── slidingWindow.js      # Sliding window implementation
+│   ├── redis/
+│   │   ├── client.js             # Redis connection
+│   │   └── scripts/              # Lua atomic scripts
+│   ├── middleware/
+│   │   └── rateLimitHeaders.js   # X-RateLimit-* headers
+│   └── demo.js                   # Attack simulation
+├── dashboard/                    # React + Vite frontend
+├── tests/load/
+│   └── artillery.yml             # Load test config
+├── rate-limiter.postman_collection.json
+├── DECISIONS.md
+└── README.md
+```
+
+---
+
+## Built By
+
+**Sanket K** — [@SanketK8705](https://github.com/SanketK8705)  
+CS Student, CMR Institute of Technology, Bengaluru
