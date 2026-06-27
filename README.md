@@ -244,6 +244,11 @@ Open `http://localhost:3000`
 ## Testing
 
 ### Quick Tests
+
+# Anyone can test your live API right now:
+curl -X POST https://rate-limiter-service-n1dk.onrender.com/check \
+  -H "Content-Type: application/json" \
+  -d '{"clientId": "your_name"}'
 ```bash
 # Health
 curl http://localhost:3000/health
@@ -359,5 +364,4 @@ rate-limiter/
 
 ## Built By
 
-**Sanket K** — [@SanketK8705](https://github.com/SanketK8705)  
-CS Student, CMR Institute of Technology, Bengaluru
+**Sanket K** — [@SanketK8705](https://github.com/SanketK8705) 
